@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
 	"gpt-load/internal/services"
+	"gpt-load/internal/streaming"
 	"gpt-load/internal/types"
 	"gpt-load/internal/utils"
 
@@ -27,11 +28,12 @@ import (
 
 // ProxyServer represents the proxy server
 type ProxyServer struct {
-	keyProvider       *keypool.KeyProvider
-	groupManager      *services.GroupManager
-	settingsManager   *config.SystemSettingsManager
-	channelFactory    *channel.Factory
-	requestLogService *services.RequestLogService
+	keyProvider           *keypool.KeyProvider
+	groupManager          *services.GroupManager
+	settingsManager       *config.SystemSettingsManager
+	channelFactory        *channel.Factory
+	requestLogService     *services.RequestLogService
+	streamProcessorFactory *streaming.StreamProcessorFactory
 }
 
 // NewProxyServer creates a new proxy server
@@ -43,11 +45,12 @@ func NewProxyServer(
 	requestLogService *services.RequestLogService,
 ) (*ProxyServer, error) {
 	return &ProxyServer{
-		keyProvider:       keyProvider,
-		groupManager:      groupManager,
-		settingsManager:   settingsManager,
-		channelFactory:    channelFactory,
-		requestLogService: requestLogService,
+		keyProvider:           keyProvider,
+		groupManager:          groupManager,
+		settingsManager:       settingsManager,
+		channelFactory:        channelFactory,
+		requestLogService:     requestLogService,
+		streamProcessorFactory: streaming.NewStreamProcessorFactory(),
 	}, nil
 }
 
@@ -244,7 +247,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	c.Status(resp.StatusCode)
 
 	if isStream {
-		ps.handleStreamingResponse(c, resp)
+		ps.handleStreamingResponse(c, resp, channelHandler, group, bodyBytes)
 	} else {
 		ps.handleNormalResponse(c, resp)
 	}

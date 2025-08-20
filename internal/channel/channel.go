@@ -37,4 +37,7 @@ type ChannelProxy interface {
 
 	// Reshape the Stream request body(At present, the main anti-truncation treatment)
 	ReshapeStreamReqBody(req *http.Request)
+
+	// GetChannelType returns the channel type identifier
+	GetChannelType() string
 }

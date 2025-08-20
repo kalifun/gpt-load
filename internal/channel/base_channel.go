@@ -118,3 +118,8 @@ func (b *BaseChannel) GetHTTPClient() *http.Client {
 func (b *BaseChannel) GetStreamClient() *http.Client {
 	return b.StreamClient
 }
+
+// GetChannelType returns the channel type identifier
+func (b *BaseChannel) GetChannelType() string {
+	return b.channelType
+}
