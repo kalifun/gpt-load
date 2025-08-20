@@ -138,3 +138,5 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIK
 
 	return false, fmt.Errorf("[status %d] %s", resp.StatusCode, parsedError)
 }
+
+func (ch *AnthropicChannel) ReshapeStreamReqBody(req *http.Request) {}

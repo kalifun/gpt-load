@@ -81,7 +81,6 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to apply parameter overrides: %v", err)))
 		return
 	}
-
 	isStream := channelHandler.IsStreamRequest(c, bodyBytes)
 
 	ps.executeRequestWithRetry(c, channelHandler, group, finalBodyBytes, isStream, startTime, 0, nil)
@@ -176,6 +175,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	var client *http.Client
 	if isStream {
 		client = channelHandler.GetStreamClient()
+		channelHandler.ReshapeStreamReqBody(req)
 		req.Header.Set("X-Accel-Buffering", "no")
 	} else {
 		client = channelHandler.GetHTTPClient()

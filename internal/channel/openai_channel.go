@@ -135,3 +135,5 @@ func (ch *OpenAIChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 
 	return false, fmt.Errorf("[status %d] %s", resp.StatusCode, parsedError)
 }
+
+func (ch *OpenAIChannel) ReshapeStreamReqBody(req *http.Request) {}

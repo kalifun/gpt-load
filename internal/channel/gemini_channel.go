@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -154,4 +155,97 @@ func (ch *GeminiChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 	parsedError := app_errors.ParseUpstreamError(errorBody)
 
 	return false, fmt.Errorf("[status %d] %s", resp.StatusCode, parsedError)
+}
+
+func (ch *GeminiChannel) ReshapeStreamReqBody(req *http.Request) {
+    bodyBytes, err := io.ReadAll(req.Body)
+    if err != nil {
+				logrus.Errorf("Failed to read request body: %v", err)
+        return
+    }
+    defer req.Body.Close()
+
+    var data map[string]interface{}
+    if err := json.Unmarshal(bodyBytes, &data); err != nil {
+				logrus.Errorf("Failed to unmarshal request body: %v", err)
+        return
+    }
+
+    injectSystemPrompt(data)
+
+    newBody, err := json.Marshal(data)
+    if err != nil {
+				logrus.Errorf("Failed to marshal new request body: %v", err)
+        return
+    }
+
+    req.Body = io.NopCloser(bytes.NewReader(newBody))
+    req.ContentLength = int64(len(newBody))
+}
+
+
+// InjectSystemPrompt injects a system prompt to ensure the [done] token is present.
+// It intelligently handles both system_instruction (snake_case) and systemInstruction (camelCase)
+// by merging the content of system_instruction into systemInstruction before processing.
+// systemInstruction is the officially recommended format.
+func injectSystemPrompt(body map[string]interface{}) {
+	newSystemPromptPart := map[string]interface{}{
+		"text": "IMPORTANT: At the very end of your entire response, you must write the token [done] to signal completion. This is a mandatory technical requirement.",
+	}
+
+	// Standardize: If system_instruction exists, merge its content into systemInstruction.
+	if snakeVal, snakeExists := body["system_instruction"]; snakeExists {
+		// Ensure camelCase map exists
+		camelMap, _ := body["systemInstruction"].(map[string]interface{})
+		if camelMap == nil {
+			camelMap = make(map[string]interface{})
+		}
+
+		// Ensure camelCase parts array exists
+		camelParts, _ := camelMap["parts"].([]interface{})
+		if camelParts == nil {
+			camelParts = make([]interface{}, 0)
+		}
+
+		// If snake_case is a valid map with its own parts, prepend them to camelCase parts
+		if snakeMap, snakeOk := snakeVal.(map[string]interface{}); snakeOk {
+			if snakeParts, snakePartsOk := snakeMap["parts"].([]interface{}); snakePartsOk {
+				camelParts = append(snakeParts, camelParts...)
+			}
+		}
+
+		// Update the camelCase field with the merged parts and delete the snake_case one
+		camelMap["parts"] = camelParts
+		body["systemInstruction"] = camelMap
+		delete(body, "system_instruction")
+	}
+
+	// --- From this point on, we only need to deal with systemInstruction ---
+
+	// Case 1: systemInstruction field is missing or null. Create it.
+	if val, exists := body["systemInstruction"]; !exists || val == nil {
+		body["systemInstruction"] = map[string]interface{}{
+			"parts": []interface{}{newSystemPromptPart},
+		}
+		return
+	}
+
+	instruction, ok := body["systemInstruction"].(map[string]interface{})
+	if !ok {
+		// The field exists but is of the wrong type. Overwrite it.
+		body["systemInstruction"] = map[string]interface{}{
+			"parts": []interface{}{newSystemPromptPart},
+		}
+		return
+	}
+
+	// Case 2: The instruction field exists, but its 'parts' array is missing, null, or not an array.
+	parts, ok := instruction["parts"].([]interface{})
+	if !ok {
+		instruction["parts"] = []interface{}{newSystemPromptPart}
+		return
+	}
+
+	// Case 3: The instruction field and its 'parts' array both exist. Append to the existing array.
+	instruction["parts"] = append(parts, newSystemPromptPart)
 }
