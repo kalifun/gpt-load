@@ -154,8 +154,13 @@ func (sh *StreamHandler) processStreamAttempt(
 				textInThisStream += textChunk
 			}
 
-			// Forward the line to client
-			if _, err := fmt.Fprintf(writer, "%s\n\n", line); err != nil {
+			// Forward the line to client, but remove [done] tokens for Gemini
+			processedLine := line
+			if channelType == "gemini" {
+				processedLine = sh.removeDoneTokensFromLine(line, data)
+			}
+			
+			if _, err := fmt.Fprintf(writer, "%s\n\n", processedLine); err != nil {
 				return false, fmt.Errorf("failed to write to client: %w", err)
 			}
 			flusher.Flush()
@@ -411,6 +416,71 @@ func (sh *StreamHandler) endsWithSentencePunctuation(text string) bool {
 	last := runes[len(runes)-1]
 	const punctuations = "。？！.!?…\"'\"'"
 	return strings.ContainsRune(punctuations, last)
+}
+
+// removeDoneTokensFromLine removes [done] tokens from Gemini streaming responses
+func (sh *StreamHandler) removeDoneTokensFromLine(line string, data map[string]interface{}) string {
+	if !strings.HasPrefix(line, "data: ") {
+		return line
+	}
+	
+	dataContent := strings.TrimPrefix(line, "data: ")
+	if dataContent == "[DONE]" {
+		return line // OpenAI style [DONE] should be preserved
+	}
+	
+	// Parse JSON data
+	var parsedData map[string]interface{}
+	if err := json.Unmarshal([]byte(dataContent), &parsedData); err != nil {
+		return line
+	}
+	
+	// Extract text from Gemini format
+	text := sh.extractGeminiText(parsedData)
+	if text == "" {
+		return line
+	}
+	
+	// Remove [done] tokens from text
+	cleanText := sh.RemoveDoneTokensFromText(text)
+	
+	// If text was modified, reconstruct the JSON
+	if cleanText != text {
+		// Update the text in the parsed data
+		if candidates, ok := parsedData["candidates"].([]interface{}); ok && len(candidates) > 0 {
+			if candidate, ok := candidates[0].(map[string]interface{}); ok {
+				if content, ok := candidate["content"].(map[string]interface{}); ok {
+					if parts, ok := content["parts"].([]interface{}); ok && len(parts) > 0 {
+						if part, ok := parts[0].(map[string]interface{}); ok {
+							part["text"] = cleanText
+						}
+					}
+				}
+			}
+		}
+		
+		// Marshal back to JSON
+		newDataBytes, err := json.Marshal(parsedData)
+		if err == nil {
+			return "data: " + string(newDataBytes)
+		}
+	}
+	
+	return line
+}
+
+// RemoveDoneTokensFromText removes [done] tokens from text
+func (sh *StreamHandler) RemoveDoneTokensFromText(text string) string {
+	// Remove [done] tokens from the end of text
+	for _, pattern := range sh.doneTokenPatterns {
+		if strings.HasSuffix(text, pattern) {
+			text = strings.TrimSuffix(text, pattern)
+			// Also remove any whitespace before the token
+			text = strings.TrimSpace(text)
+			break
+		}
+	}
+	return text
 }
 
 // writeRetryError writes a retry error to the client
